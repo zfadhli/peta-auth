@@ -1,0 +1,256 @@
+# peta-auth
+
+Encrypted cookie sessions for Bun — with first-class adapters for **Hono**, **ElysiaJS**, and **Nuxt**.
+
+Uses `iron-webcrypto` (AES-256-CBC + HMAC-SHA256) to seal session data into stateless, signed-and-encrypted cookies. No server-side storage needed.
+
+Inspired by [iron-session](https://github.com/vvo/iron-session) and [nuxt-auth-utils](https://github.com/atinux/nuxt-auth-utils).
+
+```bash
+bun add peta-auth
+```
+
+Install only the framework adapters you need:
+
+```bash
+bun add hono           # for peta-auth/hono
+bun add elysia         # for peta-auth/elysia
+# Nuxt already includes h3 — just add peta-auth
+```
+
+---
+
+## Quick start
+
+### Hono
+
+```ts
+import { Hono } from 'hono'
+import { session } from 'peta-auth/hono'
+
+const app = new Hono()
+
+app.use('*', session({
+  password: process.env.SESSION_SECRET!,
+  cookieName: 'my-session',
+}))
+
+app.get('/profile', (c) => {
+  const s = c.var.session
+  if (!s.user) return c.json({ error: 'unauthorized' }, 401)
+  return c.json(s.user)
+})
+
+app.post('/login', async (c) => {
+  const { name } = await c.req.json()
+  Object.assign(c.var.session, { user: { name }, loggedInAt: Date.now() })
+  await c.var.session.save()
+  return c.json({ ok: true })
+})
+
+app.post('/logout', (c) => {
+  c.var.session.destroy()
+  return c.json({ ok: true })
+})
+```
+
+Run with `bun run file.ts` — Bun auto-starts the server.
+
+### ElysiaJS
+
+```ts
+import { Elysia } from 'elysia'
+import { session } from 'peta-auth/elysia'
+
+new Elysia()
+  .use(session({
+    password: process.env.SESSION_SECRET!,
+    cookieName: 'my-session',
+  }))
+  .get('/profile', ({ session: s }) =>
+    !s.user ? Response.json({ error: 'unauthorized' }, { status: 401 })
+            : Response.json(s.user))
+  .post('/login', async ({ session: s, body }: any) => {
+    s.user = { name: body.name }
+    await s.save()
+    return Response.json({ ok: true })
+  })
+  .post('/logout', ({ session: s }) => {
+    s.destroy()
+    return Response.json({ ok: true })
+  })
+  .listen(3000)
+```
+
+### Nuxt
+
+```ts
+// server/api/profile.get.ts
+import { useSession } from 'peta-auth/nuxt'
+
+export default defineEventHandler(async (event) => {
+  const session = await useSession(event, {
+    password: process.env.NUXT_SESSION_PASSWORD!,
+    cookieName: 'nuxt-session',
+  })
+  if (!session.user) throw createError({ statusCode: 401 })
+  return session.user
+})
+```
+
+```ts
+// server/api/login.post.ts
+import { useSession } from 'peta-auth/nuxt'
+
+export default defineEventHandler(async (event) => {
+  const session = await useSession(event, {
+    password: process.env.NUXT_SESSION_PASSWORD!,
+    cookieName: 'nuxt-session',
+  })
+  const body = await readBody(event)
+  Object.assign(session, { user: body, loggedInAt: Date.now() })
+  await session.save()
+  return { ok: true }
+})
+```
+
+Set `NUXT_SESSION_PASSWORD` in your `.env`.
+
+---
+
+## API
+
+### `session` middleware (framework adapters)
+
+Each adapter exports a `session(options)` function that reads the session from the incoming cookie and attaches it to the framework's context.
+
+```ts
+session({
+  password: process.env.SESSION_SECRET!, // required, at least 32 chars
+  cookieName: 'my-session',              // required
+  ttl: 60 * 60 * 24 * 14,                // optional, default 14 days
+  cookieOptions: { httpOnly: true, secure: true, sameSite: 'lax', path: '/' },
+})
+```
+
+Password rotation is supported via object syntax:
+
+```ts
+session({ password: { 1: 'old-pw', 2: 'new-pw' }, cookieName: 'my-session' })
+// new cookies use key 2, old cookies still decrypt with key 1
+```
+
+### Session object
+
+```ts
+interface IronSession {
+  save(): Promise<void>         // seal & write the cookie
+  destroy(): void               // clear data & expire the cookie
+  updateConfig(opts): void      // change options for this request
+  [key: string]: unknown        // your data
+}
+```
+
+### Low-level
+
+```ts
+import { createSessionFromAdapter, sealData, unsealData } from 'peta-auth'
+import { hashPassword, verifyPassword } from 'peta-auth'
+```
+
+- **`createSessionFromAdapter(adapter, options)`** — takes a `SessionAdapter` (`{ getCookie, setCookie }`). Used internally by all framework adapters.
+- **`sealData(data, { password, ttl? })` / `unsealData<T>(seal, { password, ttl? })`** — encrypt/decrypt arbitrary data.
+- **`hashPassword(password, { cost? })` / `verifyPassword(hash, password)`** — bcrypt hashing via `bcryptjs`. Default cost: 10.
+
+---
+
+## OAuth
+
+```ts
+import { defineOAuthGitHubEventHandler } from 'peta-auth/oauth/github'
+import { defineOAuthGoogleEventHandler } from 'peta-auth/oauth/google'
+```
+
+Each returns a `(request: Request) => Promise<Response>` handler — framework-agnostic.
+
+```ts
+import { defineOAuthGitHubEventHandler } from 'peta-auth/oauth/github'
+import { session } from 'peta-auth/hono'
+
+const app = new Hono()
+app.use('*', session({ password: process.env.SESSION_SECRET!, cookieName: 'my-session' }))
+
+const githubHandler = defineOAuthGitHubEventHandler({
+  config: {
+    clientId: process.env.GITHUB_CLIENT_ID!,
+    clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+  },
+  async onSuccess({ user, tokens }) {
+    // The user is authenticated — redirect back to your app.
+    // To create a session, use the `request` parameter:
+    // onSuccess({ user, tokens, request })
+    return new Response(null, { status: 302, headers: { Location: '/' } })
+  },
+})
+
+app.get('/auth/github', async (c) => githubHandler(c.req.raw))
+```
+
+Requires env vars: `PETA_OAUTH_GITHUB_CLIENT_ID`, `PETA_OAUTH_GITHUB_CLIENT_SECRET` (or `PETA_OAUTH_GOOGLE_*`).
+
+The `onSuccess` callback receives `request: Request` — create a session from the raw request inside the handler:
+
+```ts
+import { createSessionFromAdapter } from 'peta-auth'
+import { parse } from 'cookie'
+
+async onSuccess({ user, tokens, request }) {
+  const res = new Response(null, { status: 302, headers: { Location: '/' } })
+  const session = await createSessionFromAdapter({
+    getCookie: (name) => parse(request.headers.get('cookie') ?? '')[name],
+    setCookie: (v) => res.headers.append('Set-Cookie', v),
+  }, { password: process.env.SESSION_SECRET!, cookieName: 'my-session' })
+  session.user = { id: user.id, login: user.login }
+  await session.save()
+  return res
+}
+```
+
+---
+
+## Examples
+
+Full runnable examples in [`examples/`](./examples). All work with zero config (demo password fallback built in):
+
+```bash
+bun run examples/hono-basic.ts        # Hono — session CRUD, views counter
+bun run examples/elysia-basic.ts      # Elysia — session CRUD, views counter
+bun run examples/password-auth.ts     # Hono — signup + login with bcrypt
+bun run examples/oauth-github.ts      # Hono — GitHub OAuth
+bun run examples/oauth-google.ts      # Hono — Google OAuth (PKCE)
+bun run examples/elysia-password.ts   # Elysia — signup + login with bcrypt
+bun run examples/elysia-oauth-github.ts # Elysia — GitHub OAuth
+bun run examples/elysia-oauth-google.ts # Elysia — Google OAuth (PKCE)
+cd examples/nuxt                      # Nuxt — server routes with useSession
+```
+
+---
+
+## How it works
+
+Session data is serialized, encrypted with AES-256-CBC, integrity-protected with HMAC-SHA256, and stored in a single cookie. The session is **stateless** — no database, no Redis, no server-side storage.
+
+- `session.save()` — seals the current data into the cookie
+- `session.destroy()` — clears data and expires the cookie
+- Multiple mutations can be made before `save()` — only one seal operation
+- Cookie size limit of 4096 bytes applies (throws if exceeded)
+
+---
+
+## Scripts
+
+```bash
+bun test            # 43 tests across 9 files
+bun run build       # tsdown → dist/ (16 files, 24 kB)
+bun run prepublish  # build + publish
+```
