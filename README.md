@@ -226,6 +226,33 @@ if (!validateCsrf(session, body._csrf)) {
 
 ---
 
+## Password Reset
+
+Helpers for forgot/reset password flows using short-lived JWTs.
+
+```ts
+import { createPasswordResetToken, verifyPasswordResetToken, resetPassword } from 'peta-auth'
+
+// Generate a token (e.g., in a "forgot password" endpoint)
+const token = await createPasswordResetToken(user.email, {
+  password: process.env.SECRET!,
+  exp: 3600,  // optional, default 1 hour
+})
+// → email token as a link: https://example.com/reset?token=${token}
+
+// Verify a token (e.g., in a "reset password" endpoint)
+const payload = await verifyPasswordResetToken(token, process.env.SECRET!)
+if (!payload) throw new Error('Invalid or expired token')
+// payload.userId → the email passed to createPasswordResetToken
+
+// Combined: verify token + hash new password
+const result = await resetPassword(token, newPassword, process.env.SECRET!)
+if (!result) throw new Error('Invalid or expired token')
+users.set(result.userId, { ...user, hash: result.hash })
+```
+
+---
+
 ## Low-level
 
 ```ts
@@ -300,6 +327,7 @@ bun run examples/hono-guard.ts           # Hono — requireSession guard
 bun run examples/elysia-basic.ts         # Elysia — session CRUD, views counter
 bun run examples/elysia-guard.ts         # Elysia — requireSession guard
 bun run examples/password-auth.ts        # Hono — signup + login with bcrypt
+bun run examples/password-reset.ts       # Hono — forgot/reset password flow
 bun run examples/jwt-basic.ts            # JWT sign + verify + tamper detection
 bun run examples/csrf-basic.ts           # Hono — CSRF token form example
 bun run examples/oauth-github.ts         # Hono — GitHub OAuth
@@ -326,7 +354,7 @@ Session data is serialized, encrypted with AES-256-CBC, integrity-protected with
 ## Scripts
 
 ```bash
-bun test            # 60 tests across 11 files
+bun test            # 65 tests across 12 files
 bun run build       # tsdown → dist/ (21 files, 30 kB)
 bun run prepublish  # build + publish
 ```
