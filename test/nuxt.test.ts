@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { getResponseHeader, mockEvent } from 'h3'
-import { useSession } from '../src/nuxt.ts'
+import { requireSession, useSession } from '../src/nuxt.ts'
 
 const password = { 1: 'a'.repeat(32) }
 
@@ -60,5 +60,20 @@ describe('Nuxt adapter', () => {
     })
     const session3 = await useSession(event3, { password, cookieName: 'ns' })
     expect(session3.user).toBeUndefined()
+  })
+})
+
+describe('Nuxt requireSession', () => {
+  it('throws on empty session', async () => {
+    const event = mockEvent('http://localhost/test')
+    const session = await useSession(event, { password, cookieName: 'ns' })
+    expect(() => requireSession(event, session)).toThrow('unauthorized')
+  })
+
+  it('passes with populated session', async () => {
+    const event = mockEvent('http://localhost/test')
+    const session = await useSession(event, { password, cookieName: 'ns' })
+    session.user = { name: 'Alice' }
+    expect(() => requireSession(event, session)).not.toThrow()
   })
 })

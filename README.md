@@ -26,7 +26,7 @@ bun add elysia         # for peta-auth/elysia
 
 ```ts
 import { Hono } from 'hono'
-import { session } from 'peta-auth/hono'
+import { session, requireSession } from 'peta-auth/hono'
 
 const app = new Hono()
 
@@ -35,18 +35,17 @@ app.use('*', session({
   cookieName: 'my-session',
 }))
 
-app.get('/profile', (c) => {
-  const s = c.var.session
-  if (!s.user) return c.json({ error: 'unauthorized' }, 401)
-  return c.json(s.user)
-})
-
 app.post('/login', async (c) => {
   const { name } = await c.req.json()
-  Object.assign(c.var.session, { user: { name }, loggedInAt: Date.now() })
+  c.var.session.user = { name }
   await c.var.session.save()
   return c.json({ ok: true })
 })
+
+// Everything below requireSession returns 401 if not logged in
+app.use('/api/*', requireSession())
+
+app.get('/api/profile', (c) => c.json(c.var.session.user))
 
 app.post('/logout', (c) => {
   c.var.session.destroy()
@@ -60,25 +59,22 @@ Run with `bun run file.ts` — Bun auto-starts the server.
 
 ```ts
 import { Elysia } from 'elysia'
-import { session } from 'peta-auth/elysia'
+import { session, requireSession } from 'peta-auth/elysia'
 
 new Elysia()
   .use(session({
     password: process.env.SESSION_SECRET!,
     cookieName: 'my-session',
   }))
-  .get('/profile', ({ session: s }) =>
-    !s.user ? Response.json({ error: 'unauthorized' }, { status: 401 })
-            : Response.json(s.user))
   .post('/login', async ({ session: s, body }: any) => {
     s.user = { name: body.name }
     await s.save()
     return Response.json({ ok: true })
   })
-  .post('/logout', ({ session: s }) => {
-    s.destroy()
-    return Response.json({ ok: true })
-  })
+  .get('/public', () => Response.json({ message: 'public' }))
+  // Everything after requireSession is guarded
+  .use(requireSession())
+  .get('/profile', ({ session: s }) => Response.json(s.user))
   .listen(3000)
 ```
 
@@ -86,14 +82,14 @@ new Elysia()
 
 ```ts
 // server/api/profile.get.ts
-import { useSession } from 'peta-auth/nuxt'
+import { useSession, requireSession } from 'peta-auth/nuxt'
 
 export default defineEventHandler(async (event) => {
   const session = await useSession(event, {
     password: process.env.NUXT_SESSION_PASSWORD!,
     cookieName: 'nuxt-session',
   })
-  if (!session.user) throw createError({ statusCode: 401 })
+  requireSession(event, session)
   return session.user
 })
 ```
@@ -140,6 +136,33 @@ session({ password: { 1: 'old-pw', 2: 'new-pw' }, cookieName: 'my-session' })
 // new cookies use key 2, old cookies still decrypt with key 1
 ```
 
+### Typed sessions
+
+Add a generic type parameter to get full IntelliSense on your session data:
+
+```ts
+// Hono
+app.use('*', session<{ user: { name: string }; views: number }>({ password, cookieName }))
+// c.var.session.user.name → string
+// c.var.session.views     → number
+
+// Elysia
+app.use(session<{ user: { name: string } }>({ password, cookieName }))
+
+// Nuxt
+const session = await useSession<{ user: { name: string } }>(event, { password, cookieName })
+```
+
+Without a generic parameter, session data defaults to `Record<string, unknown>`.
+
+### `requireSession()` guard
+
+Returns 401 if the session has no user data. Works per-framework:
+
+- **Hono**: `app.use('/protected/*', requireSession())` — middleware, path-patterned
+- **Elysia**: `app.use(requireSession())` — guards all routes defined after it
+- **Nuxt**: `requireSession(event, session)` — throws `createError({ statusCode: 401 })`
+
 ### Session object
 
 ```ts
@@ -151,14 +174,66 @@ interface IronSession {
 }
 ```
 
-### Low-level
+---
+
+## JWT
+
+Sign and verify HS256 JWTs using the same password infrastructure.
+
+```ts
+import { signJWT, verifyJWT } from 'peta-auth/jwt'
+
+// Sign
+const token = await signJWT({ userId: 42, role: 'admin' }, {
+  password: process.env.JWT_SECRET!,
+  exp: 3600,                       // optional, seconds from now
+})
+
+// Verify
+const payload = await verifyJWT<{ userId: number; role: string }>(token, {
+  password: process.env.JWT_SECRET!,
+})
+if (!payload) throw new Error('invalid or expired token')
+```
+
+- `exp` defaults to no expiry if omitted
+- Supports password rotation (tries all keys on verify, signs with highest)
+- Requires password at least 32 characters
+
+---
+
+## CSRF protection
+
+Generate and validate CSRF tokens stored in the session.
+
+```ts
+import { generateCsrf, validateCsrf } from 'peta-auth/csrf'
+
+// On a form page — generate token and store in session
+const token = await generateCsrf(session)
+await session.save()
+// → render form with hidden field: <input name="_csrf" value="${token}" />
+
+// On form submission — validate
+if (!validateCsrf(session, body._csrf)) {
+  throw new Error('CSRF mismatch')
+}
+```
+
+- Uses `crypto.randomUUID()` for token generation
+- Stores token in session under `_csrfToken` (configurable via `{ key: 'myKey' }`)
+- You must call `session.save()` after `generateCsrf()`
+
+---
+
+## Low-level
 
 ```ts
 import { createSessionFromAdapter, sealData, unsealData } from 'peta-auth'
 import { hashPassword, verifyPassword } from 'peta-auth'
 ```
 
-- **`createSessionFromAdapter(adapter, options)`** — takes a `SessionAdapter` (`{ getCookie, setCookie }`). Used internally by all framework adapters.
+- **`createSessionFromAdapter<T>(adapter, options)`** — takes a `SessionAdapter` (`{ getCookie, setCookie }`). Used internally by all framework adapters.
 - **`sealData(data, { password, ttl? })` / `unsealData<T>(seal, { password, ttl? })`** — encrypt/decrypt arbitrary data.
 - **`hashPassword(password, { cost? })` / `verifyPassword(hash, password)`** — bcrypt hashing via `bcryptjs`. Default cost: 10.
 
@@ -186,9 +261,6 @@ const githubHandler = defineOAuthGitHubEventHandler({
     clientSecret: process.env.GITHUB_CLIENT_SECRET!,
   },
   async onSuccess({ user, tokens }) {
-    // The user is authenticated — redirect back to your app.
-    // To create a session, use the `request` parameter:
-    // onSuccess({ user, tokens, request })
     return new Response(null, { status: 302, headers: { Location: '/' } })
   },
 })
@@ -223,15 +295,19 @@ async onSuccess({ user, tokens, request }) {
 Full runnable examples in [`examples/`](./examples). All work with zero config (demo password fallback built in):
 
 ```bash
-bun run examples/hono-basic.ts        # Hono — session CRUD, views counter
-bun run examples/elysia-basic.ts      # Elysia — session CRUD, views counter
-bun run examples/password-auth.ts     # Hono — signup + login with bcrypt
-bun run examples/oauth-github.ts      # Hono — GitHub OAuth
-bun run examples/oauth-google.ts      # Hono — Google OAuth (PKCE)
-bun run examples/elysia-password.ts   # Elysia — signup + login with bcrypt
-bun run examples/elysia-oauth-github.ts # Elysia — GitHub OAuth
-bun run examples/elysia-oauth-google.ts # Elysia — Google OAuth (PKCE)
-cd examples/nuxt                      # Nuxt — server routes with useSession
+bun run examples/hono-basic.ts           # Hono — session CRUD, views counter
+bun run examples/hono-guard.ts           # Hono — requireSession guard
+bun run examples/elysia-basic.ts         # Elysia — session CRUD, views counter
+bun run examples/elysia-guard.ts         # Elysia — requireSession guard
+bun run examples/password-auth.ts        # Hono — signup + login with bcrypt
+bun run examples/jwt-basic.ts            # JWT sign + verify + tamper detection
+bun run examples/csrf-basic.ts           # Hono — CSRF token form example
+bun run examples/oauth-github.ts         # Hono — GitHub OAuth
+bun run examples/oauth-google.ts         # Hono — Google OAuth (PKCE)
+bun run examples/elysia-password.ts      # Elysia — signup + login with bcrypt
+bun run examples/elysia-oauth-github.ts  # Elysia — GitHub OAuth
+bun run examples/elysia-oauth-google.ts  # Elysia — Google OAuth (PKCE)
+cd examples/nuxt                         # Nuxt — server routes with useSession
 ```
 
 ---
@@ -250,7 +326,7 @@ Session data is serialized, encrypted with AES-256-CBC, integrity-protected with
 ## Scripts
 
 ```bash
-bun test            # 43 tests across 9 files
-bun run build       # tsdown → dist/ (16 files, 24 kB)
+bun test            # 60 tests across 11 files
+bun run build       # tsdown → dist/ (21 files, 30 kB)
 bun run prepublish  # build + publish
 ```

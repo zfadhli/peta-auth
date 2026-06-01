@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { Hono } from 'hono'
-import { session } from '../src/hono.ts'
+import { requireSession, session } from '../src/hono.ts'
 
 const password = { 1: 'a'.repeat(32) }
 const cookieName = 'hono-session'
@@ -33,6 +33,27 @@ function createApp() {
     await s.save()
     return c.json({ views: s.views })
   })
+
+  return app
+}
+
+function createGuardApp() {
+  const app = new Hono()
+  app.use('*', session({ password, cookieName }))
+  app.use('/protected/*', requireSession())
+
+  app.post('/login', async (c) => {
+    const { name } = await c.req.json()
+    Object.assign(c.var.session, { user: { name }, loggedInAt: Date.now() })
+    await c.var.session.save()
+    return c.json({ ok: true })
+  })
+
+  app.get('/protected/profile', (c) => {
+    return c.json(c.var.session.user)
+  })
+
+  app.get('/public', (c) => c.json({ ok: true }))
 
   return app
 }
@@ -87,5 +108,31 @@ describe('Hono adapter', () => {
 
     const profile = await app.request('/profile', { headers: { cookie: clearedCookie } })
     expect(profile.status).toBe(401)
+  })
+})
+
+describe('Hono requireSession', () => {
+  const app = createGuardApp()
+
+  it('returns 401 for protected route without session', async () => {
+    const res = await app.request('/protected/profile')
+    expect(res.status).toBe(401)
+  })
+
+  it('allows public route without session', async () => {
+    const res = await app.request('/public')
+    expect(res.status).toBe(200)
+  })
+
+  it('allows protected route with session', async () => {
+    const login = await app.request('/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Alice' }),
+    })
+    const cookie = login.headers.getSetCookie()[0]
+    const profile = await app.request('/protected/profile', { headers: { cookie } })
+    expect(profile.status).toBe(200)
+    expect((await profile.json()).name).toBe('Alice')
   })
 })

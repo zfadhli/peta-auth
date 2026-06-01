@@ -3,17 +3,13 @@ import type { MiddlewareHandler } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { createSessionFromAdapter, type IronSession, type SessionOptions } from './session.ts'
 
-declare module 'hono' {
-  interface ContextVariableMap {
-    session: IronSession
-  }
-}
-
-export function session(options: SessionOptions): MiddlewareHandler {
+export function session<T extends Record<string, unknown> = Record<string, unknown>>(
+  options: SessionOptions,
+): MiddlewareHandler<{ Variables: { session: T & IronSession } }> {
   return createMiddleware(async (c, next) => {
     c.set(
       'session',
-      await createSessionFromAdapter(
+      await createSessionFromAdapter<T>(
         {
           getCookie: (name) => parse(c.req.header('cookie') ?? '')[name],
           setCookie: (v) => c.res.headers.append('Set-Cookie', v),
@@ -21,6 +17,15 @@ export function session(options: SessionOptions): MiddlewareHandler {
         options,
       ),
     )
+    await next()
+  })
+}
+
+export function requireSession(): MiddlewareHandler {
+  return createMiddleware(async (c, next) => {
+    const s = c.var.session
+    const hasData = Object.keys(s).some((k) => k !== 'save' && k !== 'destroy' && k !== 'updateConfig')
+    if (!hasData) return c.json({ error: 'unauthorized' }, 401)
     await next()
   })
 }

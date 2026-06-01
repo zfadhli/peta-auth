@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { Elysia } from 'elysia'
-import { session } from '../src/elysia.ts'
+import { requireSession, session } from '../src/elysia.ts'
 
 const password = { 1: 'a'.repeat(32) }
 const cookieName = 'ely-session'
@@ -26,6 +26,19 @@ function createApp() {
       await s.save()
       return Response.json({ views: s.views })
     })
+}
+
+function createGuardApp() {
+  return new Elysia()
+    .use(session({ password, cookieName }))
+    .post('/login', async ({ session: s, body }: any) => {
+      s.user = { name: body.name }
+      await s.save()
+      return Response.json({ ok: true })
+    })
+    .get('/public', () => Response.json({ ok: true }))
+    .use(requireSession())
+    .get('/profile', ({ session: s }) => Response.json(s.user))
 }
 
 describe('Elysia adapter', () => {
@@ -84,5 +97,33 @@ describe('Elysia adapter', () => {
 
     const profile = await app.handle(new Request('http://localhost/profile', { headers: { cookie: clearedCookie } }))
     expect(profile.status).toBe(401)
+  })
+})
+
+describe('Elysia requireSession', () => {
+  const app = createGuardApp()
+
+  it('returns 401 for protected route without session', async () => {
+    const res = await app.handle(new Request('http://localhost/profile'))
+    expect(res.status).toBe(401)
+  })
+
+  it('allows public route without session', async () => {
+    const res = await app.handle(new Request('http://localhost/public'))
+    expect(res.status).toBe(200)
+  })
+
+  it('allows protected route with session', async () => {
+    const login = await app.handle(
+      new Request('http://localhost/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Alice' }),
+      }),
+    )
+    const cookie = login.headers.getSetCookie()[0]
+    const profile = await app.handle(new Request('http://localhost/profile', { headers: { cookie } }))
+    expect(profile.status).toBe(200)
+    expect((await profile.json()).name).toBe('Alice')
   })
 })
