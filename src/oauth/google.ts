@@ -20,6 +20,30 @@ export interface OAuthGoogleConfig {
   redirectURL?: string
 }
 
+interface ResolvedOAuthGoogleConfig {
+  clientId: string
+  clientSecret: string
+  scope: string[]
+  authorizationURL: string
+  tokenURL: string
+  userInfoURL: string
+  authorizationParams: Record<string, string>
+  redirectURL?: string
+}
+
+function resolveGoogleConfig(config: OAuthGoogleConfig): ResolvedOAuthGoogleConfig {
+  return {
+    authorizationURL: config.authorizationURL ?? 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenURL: config.tokenURL ?? 'https://oauth2.googleapis.com/token',
+    userInfoURL: config.userInfoURL ?? 'https://www.googleapis.com/oauth2/v3/userinfo',
+    clientId: config.clientId ?? process.env.PETA_OAUTH_GOOGLE_CLIENT_ID ?? '',
+    clientSecret: config.clientSecret ?? process.env.PETA_OAUTH_GOOGLE_CLIENT_SECRET ?? '',
+    scope: config.scope ?? ['openid', 'email', 'profile'],
+    authorizationParams: config.authorizationParams ?? {},
+    redirectURL: config.redirectURL,
+  }
+}
+
 interface GoogleUser {
   sub: string
   name: string
@@ -39,25 +63,15 @@ interface GoogleTokens {
   expires_in: number
 }
 
-export function defineOAuthGoogleEventHandler(
-  options: {
-    config?: OAuthGoogleConfig
-    onSuccess: (event: { user: GoogleUser; tokens: GoogleTokens; request: Request }) => Response | Promise<Response>
-    onError?: (error: Error) => Response | Promise<Response>
-  },
-): (request: Request) => Promise<Response> {
+export function defineOAuthGoogleEventHandler(options: {
+  config?: OAuthGoogleConfig
+  onSuccess: (event: { user: GoogleUser; tokens: GoogleTokens; request: Request }) => Response | Promise<Response>
+  onError?: (error: Error) => Response | Promise<Response>
+}): (request: Request) => Promise<Response> {
   const { config: userConfig = {}, onSuccess, onError } = options
 
   return async (request: Request): Promise<Response> => {
-    const config: OAuthGoogleConfig = {
-      authorizationURL: 'https://accounts.google.com/o/oauth2/v2/auth',
-      tokenURL: 'https://oauth2.googleapis.com/token',
-      userInfoURL: 'https://www.googleapis.com/oauth2/v3/userinfo',
-      authorizationParams: {},
-      ...userConfig,
-      clientId: userConfig.clientId || process.env.PETA_OAUTH_GOOGLE_CLIENT_ID,
-      clientSecret: userConfig.clientSecret || process.env.PETA_OAUTH_GOOGLE_CLIENT_SECRET,
-    }
+    const config = resolveGoogleConfig(userConfig)
 
     const url = new URL(request.url)
     const queryCode = url.searchParams.get('code')
@@ -85,22 +99,19 @@ export function defineOAuthGoogleEventHandler(
     const pkce = await handlePKCE(request)
 
     if (!queryCode) {
-      config.scope = config.scope || ['openid', 'email', 'profile']
-
-      const authUrl = new URL(config.authorizationURL!)
-      authUrl.searchParams.set('client_id', config.clientId!)
+      const authUrl = new URL(config.authorizationURL)
+      authUrl.searchParams.set('client_id', config.clientId)
       authUrl.searchParams.set('redirect_uri', redirectURL)
       authUrl.searchParams.set('scope', config.scope.join(' '))
       authUrl.searchParams.set('response_type', 'code')
-      authUrl.searchParams.set('state', state.state!)
-      authUrl.searchParams.set('access_type', 'offline')
+      authUrl.searchParams.set('state', state.state ?? '')
 
       if (pkce.codeChallenge) {
         authUrl.searchParams.set('code_challenge', pkce.codeChallenge)
-        authUrl.searchParams.set('code_challenge_method', pkce.codeChallengeMethod!)
+        authUrl.searchParams.set('code_challenge_method', pkce.codeChallengeMethod ?? 'S256')
       }
 
-      for (const [k, v] of Object.entries(config.authorizationParams || {})) {
+      for (const [k, v] of Object.entries(config.authorizationParams)) {
         authUrl.searchParams.set(k, v)
       }
 
@@ -112,11 +123,11 @@ export function defineOAuthGoogleEventHandler(
       return handleInvalidState('google', onError)
     }
 
-    const tokens = await requestAccessToken<GoogleTokens & { error?: string }>(config.tokenURL!, {
+    const tokens = await requestAccessToken<GoogleTokens & { error?: string }>(config.tokenURL, {
       body: {
         grant_type: 'authorization_code',
-        client_id: config.clientId!,
-        client_secret: config.clientSecret!,
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
         redirect_uri: redirectURL,
         code: queryCode,
         code_verifier: pkce.codeVerifier,
@@ -128,7 +139,7 @@ export function defineOAuthGoogleEventHandler(
       return handleAccessTokenError('google', tokensRecord as Record<string, string>, onError)
     }
 
-    const userResponse = await fetch(config.userInfoURL!, {
+    const userResponse = await fetch(config.userInfoURL, {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
     })
 

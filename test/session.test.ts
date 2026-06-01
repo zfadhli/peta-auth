@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import { createSessionFromAdapter } from '../src/index.ts'
 
 const password = { 1: 'a'.repeat(32) }

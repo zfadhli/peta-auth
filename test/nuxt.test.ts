@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'bun:test'
-import { mockEvent, getResponseHeader } from 'h3'
+import { describe, expect, it } from 'bun:test'
+import { getResponseHeader, mockEvent } from 'h3'
 import { useSession } from '../src/nuxt.ts'
 
 const password = { 1: 'a'.repeat(32) }

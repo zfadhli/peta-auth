@@ -1,12 +1,12 @@
-import { describe, it, expect, afterEach } from 'bun:test'
+import { afterEach, describe, expect, it } from 'bun:test'
 import {
   getOAuthRedirectURL,
-  handleState,
-  handlePKCE,
-  requestAccessToken,
-  redirect,
-  handleMissingConfiguration,
   handleInvalidState,
+  handleMissingConfiguration,
+  handlePKCE,
+  handleState,
+  redirect,
+  requestAccessToken,
 } from '../../src/oauth/index.ts'
 
 describe('getOAuthRedirectURL', () => {
@@ -104,13 +104,16 @@ describe('handlePKCE', () => {
 describe('requestAccessToken', () => {
   const originalFetch = globalThis.fetch
 
-  afterEach(() => { globalThis.fetch = originalFetch })
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
 
   it('returns parsed JSON on success', async () => {
-    globalThis.fetch = async () => new Response(
-      JSON.stringify({ access_token: 'tok123', token_type: 'bearer' }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
-    )
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ access_token: 'tok123', token_type: 'bearer' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
     const result = await requestAccessToken('https://example.com/token', {
       body: { grant_type: 'authorization_code', code: 'abc' },
     })
@@ -118,18 +121,17 @@ describe('requestAccessToken', () => {
   })
 
   it('passes through 401 error response', async () => {
-    globalThis.fetch = async () => new Response(
-      JSON.stringify({ error: 'invalid_grant' }),
-      { status: 401, headers: { 'Content-Type': 'application/json' } },
-    )
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ error: 'invalid_grant' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      })
     const result = await requestAccessToken('https://example.com/token', {})
     expect(result).toEqual({ error: 'invalid_grant' })
   })
 
   it('throws on non-401 error', async () => {
     globalThis.fetch = async () => new Response('Server Error', { status: 500 })
-    expect(
-      requestAccessToken('https://example.com/token', {}),
-    ).rejects.toThrow('OAuth token request failed: 500')
+    expect(requestAccessToken('https://example.com/token', {})).rejects.toThrow('OAuth token request failed: 500')
   })
 })

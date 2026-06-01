@@ -48,9 +48,7 @@ export async function handlePKCE(request: Request): Promise<{
   const verifierBytes = getRandomBytes(32)
   const verifier = encodeBase64Url(verifierBytes)
   const encoder = new TextEncoder()
-  const hash = new Uint8Array(
-    await crypto.subtle.digest('SHA-256', encoder.encode(verifier))
-  )
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(verifier)))
   const codeChallenge = encodeBase64Url(hash)
 
   return {
@@ -92,10 +90,7 @@ export interface RequestAccessTokenOptions {
   headers?: Record<string, string>
 }
 
-export async function requestAccessToken<T = unknown>(
-  url: string,
-  options: RequestAccessTokenOptions,
-): Promise<T> {
+export async function requestAccessToken<T = unknown>(url: string, options: RequestAccessTokenOptions): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/x-www-form-urlencoded',
     ...options.headers,
@@ -135,7 +130,7 @@ export function handleMissingConfiguration(
   onError?: (err: Error) => Response | Promise<Response>,
 ): Response | Promise<Response> {
   const envVars = missingKeys.map(
-    k => `PETA_OAUTH_${provider.toUpperCase()}_${k.replace(/([A-Z])/g, '_$1').toUpperCase()}`,
+    (k) => `PETA_OAUTH_${provider.toUpperCase()}_${k.replace(/([A-Z])/g, '_$1').toUpperCase()}`,
   )
   const err = new Error(`Missing ${envVars.join(' or ')} env ${missingKeys.length > 1 ? 'variables' : 'variable'}.`)
   if (onError) return onError(err)

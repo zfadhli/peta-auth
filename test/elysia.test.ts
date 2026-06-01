@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import { Elysia } from 'elysia'
 import { session } from '../src/elysia.ts'
 
@@ -37,11 +37,13 @@ describe('Elysia adapter', () => {
   })
 
   it('logs in and persists session', async () => {
-    const login = await app.handle(new Request('http://localhost/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Jason' }),
-    }))
+    const login = await app.handle(
+      new Request('http://localhost/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Jason' }),
+      }),
+    )
     expect((await login.json()).ok).toBe(true)
 
     const cookie = login.headers.getSetCookie()[0]
@@ -50,11 +52,13 @@ describe('Elysia adapter', () => {
   })
 
   it('increments views counter', async () => {
-    const login = await app.handle(new Request('http://localhost/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'V' }),
-    }))
+    const login = await app.handle(
+      new Request('http://localhost/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'V' }),
+      }),
+    )
     let cookie = login.headers.getSetCookie()[0]
 
     const r1 = await app.handle(new Request('http://localhost/views', { headers: { cookie } }))
@@ -66,11 +70,13 @@ describe('Elysia adapter', () => {
   })
 
   it('clears session on logout', async () => {
-    const login = await app.handle(new Request('http://localhost/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'J' }),
-    }))
+    const login = await app.handle(
+      new Request('http://localhost/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'J' }),
+      }),
+    )
     const cookie = login.headers.getSetCookie()[0]
 
     const logout = await app.handle(new Request('http://localhost/logout', { method: 'POST', headers: { cookie } }))

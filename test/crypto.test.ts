@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import { sealData, unsealData } from '../src/index.ts'
 
 const password = { 1: 'a'.repeat(32) }
@@ -24,8 +24,6 @@ describe('sealData / unsealData', () => {
   })
 
   it('rejects password shorter than 32 chars', async () => {
-    expect(
-      sealData({ x: 1 }, { password: 'short' }),
-    ).rejects.toThrow('Password string too short')
+    expect(sealData({ x: 1 }, { password: 'short' })).rejects.toThrow('Password string too short')
   })
 })

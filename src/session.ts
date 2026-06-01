@@ -1,7 +1,7 @@
-import { parse, serialize } from 'cookie'
 import type { SerializeOptions } from 'cookie'
-import { sealData, unsealData } from './crypto.ts'
+import { serialize } from 'cookie'
 import type { Password } from './crypto.ts'
+import { sealData, unsealData } from './crypto.ts'
 
 const timestampSkewSec = 60
 const defaults = {
@@ -35,9 +35,7 @@ export function resolveConfig(opts: SessionOptions) {
     cookieOptions.maxAge = computeMaxAge(ttl)
   }
 
-  const passwordsMap = typeof opts.password === 'string'
-    ? { 1: opts.password }
-    : opts.password
+  const passwordsMap = typeof opts.password === 'string' ? { 1: opts.password } : opts.password
 
   for (const pw of Object.values(passwordsMap)) {
     if (pw.length < 32) throw new Error('peta-auth: password must be at least 32 characters')
@@ -60,9 +58,7 @@ export async function createSessionFromAdapter<T extends Record<string, unknown>
   let config = resolveConfig(options)
 
   const seal = adapter.getCookie(config.cookieName)
-  const data: T = seal
-    ? await unsealData<T>(seal, { password: config.password, ttl: config.ttl })
-    : ({} as T)
+  const data: T = seal ? await unsealData<T>(seal, { password: config.password, ttl: config.ttl }) : ({} as T)
 
   const session = data as T & IronSession
 
@@ -84,10 +80,12 @@ export async function createSessionFromAdapter<T extends Record<string, unknown>
       }
     }
 
-    adapter.setCookie(serialize(config.cookieName, '', {
-      ...config.cookieOptions,
-      maxAge: 0,
-    }))
+    adapter.setCookie(
+      serialize(config.cookieName, '', {
+        ...config.cookieOptions,
+        maxAge: 0,
+      }),
+    )
   }
 
   session.updateConfig = (opts: SessionOptions) => {
@@ -96,5 +94,3 @@ export async function createSessionFromAdapter<T extends Record<string, unknown>
 
   return session
 }
-
-

@@ -36,6 +36,8 @@
   ],
   "scripts": {
     "build": "tsdown",
+    "lint": "biome check --write .",
+    "lint:ci": "biome ci .",
     "prepublish": "bun run build",
     "test": "bun test"
   },
@@ -62,6 +64,7 @@
     }
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.16",
     "@types/bcryptjs": "^3.0.0",
     "@types/bun": "latest",
     "elysia": "latest",
