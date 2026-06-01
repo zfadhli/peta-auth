@@ -157,11 +157,21 @@ Without a generic parameter, session data defaults to `Record<string, unknown>`.
 
 ### `requireSession()` guard
 
-Returns 401 if the session has no user data. Works per-framework:
+Returns 401 if the session has no user data. Optionally checks a specific session key:
 
-- **Hono**: `app.use('/protected/*', requireSession())` — middleware, path-patterned
+```ts
+// Guard on any session data
+app.use('/api/*', requireSession())
+
+// Guard on a specific key (e.g. session.userId must be truthy)
+app.use('/admin/*', requireSession('userId'))
+```
+
+Works per-framework:
+
+- **Hono**: `app.use('/protected/*', requireSession())` — path-patterned middleware
 - **Elysia**: `app.use(requireSession())` — guards all routes defined after it
-- **Nuxt**: `requireSession(event, session)` — throws `createError({ statusCode: 401 })`
+- **Nuxt**: `requireSession(event, session)` or `requireSession(event, session, 'userId')` — throws `createError({ statusCode: 401 })`
 
 ### Session object
 
@@ -354,7 +364,7 @@ Session data is serialized, encrypted with AES-256-CBC, integrity-protected with
 ## Scripts
 
 ```bash
-bun test            # 65 tests across 12 files
+bun test            # 74 tests across 12 files
 bun run build       # tsdown → dist/ (21 files, 30 kB)
 bun run prepublish  # build + publish
 ```

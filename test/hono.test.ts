@@ -111,6 +111,21 @@ describe('Hono adapter', () => {
   })
 })
 
+function createKeyGuardApp() {
+  const app = new Hono()
+  app.use('*', session({ password, cookieName }))
+  app.post('/login', async (c) => {
+    const { name } = await c.req.json()
+    Object.assign(c.var.session, { user: { name }, userId: name === 'Alice' ? 42 : 0 })
+    await c.var.session.save()
+    return c.json({ ok: true })
+  })
+  app.use('/admin/*', requireSession('userId'))
+  app.get('/admin/profile', (c) => c.json({ userId: c.var.session.userId }))
+  app.get('/public', (c) => c.json({ ok: true }))
+  return app
+}
+
 describe('Hono requireSession', () => {
   const app = createGuardApp()
 
@@ -134,5 +149,36 @@ describe('Hono requireSession', () => {
     const profile = await app.request('/protected/profile', { headers: { cookie } })
     expect(profile.status).toBe(200)
     expect((await profile.json()).name).toBe('Alice')
+  })
+})
+
+describe('Hono requireSession with key', () => {
+  const app = createKeyGuardApp()
+
+  it('returns 401 when key is missing', async () => {
+    const res = await app.request('/admin/profile')
+    expect(res.status).toBe(401)
+  })
+
+  it('returns 401 when key is falsy', async () => {
+    const login = await app.request('/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Bob' }),
+    })
+    const cookie = login.headers.getSetCookie()[0]
+    const res = await app.request('/admin/profile', { headers: { cookie } })
+    expect(res.status).toBe(401)
+  })
+
+  it('allows when key is truthy', async () => {
+    const login = await app.request('/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Alice' }),
+    })
+    const cookie = login.headers.getSetCookie()[0]
+    const res = await app.request('/admin/profile', { headers: { cookie } })
+    expect(res.status).toBe(200)
   })
 })

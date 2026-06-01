@@ -76,4 +76,24 @@ describe('Nuxt requireSession', () => {
     session.user = { name: 'Alice' }
     expect(() => requireSession(event, session)).not.toThrow()
   })
+
+  it('throws when key is missing', async () => {
+    const event = mockEvent('http://localhost/test')
+    const session = await useSession(event, { password, cookieName: 'ns' })
+    expect(() => requireSession(event, session, 'userId')).toThrow('unauthorized')
+  })
+
+  it('throws when key is falsy', async () => {
+    const event = mockEvent('http://localhost/test')
+    const session = await useSession(event, { password, cookieName: 'ns' })
+    session.userId = 0
+    expect(() => requireSession(event, session, 'userId')).toThrow('unauthorized')
+  })
+
+  it('passes when key is truthy', async () => {
+    const event = mockEvent('http://localhost/test')
+    const session = await useSession(event, { password, cookieName: 'ns' })
+    session.userId = 42
+    expect(() => requireSession(event, session, 'userId')).not.toThrow()
+  })
 })

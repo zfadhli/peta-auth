@@ -24,16 +24,20 @@ export function session<T extends Record<string, unknown> = Record<string, unkno
   })
 }
 
-export function requireSession() {
-  return (app: Elysia) =>
+export function requireSession(): (app: Elysia) => Elysia
+export function requireSession<K extends string>(key: K): (app: Elysia) => Elysia
+export function requireSession(key?: string) {
+  return (app: Elysia): Elysia =>
     app.onBeforeHandle((context) => {
       const session = (context as unknown as { session: IronSession }).session
-      const hasData = Object.keys(session).some((k) => k !== 'save' && k !== 'destroy' && k !== 'updateConfig')
+      const hasData = key
+        ? !!session[key]
+        : Object.keys(session).some((k) => k !== 'save' && k !== 'destroy' && k !== 'updateConfig')
       if (!hasData) {
         return new Response(JSON.stringify({ error: 'unauthorized' }), {
           status: 401,
           headers: { 'Content-Type': 'application/json' },
         })
       }
-    })
+    }) as unknown as Elysia
 }

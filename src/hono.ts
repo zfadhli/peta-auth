@@ -21,10 +21,12 @@ export function session<T extends Record<string, unknown> = Record<string, unkno
   })
 }
 
-export function requireSession(): MiddlewareHandler {
+export function requireSession(): MiddlewareHandler
+export function requireSession<K extends string>(key: K): MiddlewareHandler
+export function requireSession(key?: string): MiddlewareHandler {
   return createMiddleware(async (c, next) => {
     const s = c.var.session
-    const hasData = Object.keys(s).some((k) => k !== 'save' && k !== 'destroy' && k !== 'updateConfig')
+    const hasData = key ? !!s[key] : Object.keys(s).some((k) => k !== 'save' && k !== 'destroy' && k !== 'updateConfig')
     if (!hasData) return c.json({ error: 'unauthorized' }, 401)
     await next()
   })

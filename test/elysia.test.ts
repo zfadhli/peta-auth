@@ -100,6 +100,20 @@ describe('Elysia adapter', () => {
   })
 })
 
+function createKeyGuardApp() {
+  return new Elysia()
+    .use(session({ password, cookieName }))
+    .post('/login', async ({ session: s, body }: any) => {
+      s.user = { name: body.name }
+      s.userId = body.name === 'Alice' ? 42 : 0
+      await s.save()
+      return Response.json({ ok: true })
+    })
+    .get('/public', () => Response.json({ ok: true }))
+    .use(requireSession('userId'))
+    .get('/admin/profile', ({ session: s }) => Response.json({ userId: s.userId }))
+}
+
 describe('Elysia requireSession', () => {
   const app = createGuardApp()
 
@@ -125,5 +139,40 @@ describe('Elysia requireSession', () => {
     const profile = await app.handle(new Request('http://localhost/profile', { headers: { cookie } }))
     expect(profile.status).toBe(200)
     expect((await profile.json()).name).toBe('Alice')
+  })
+})
+
+describe('Elysia requireSession with key', () => {
+  const app = createKeyGuardApp()
+
+  it('returns 401 when key is missing', async () => {
+    const res = await app.handle(new Request('http://localhost/admin/profile'))
+    expect(res.status).toBe(401)
+  })
+
+  it('returns 401 when key is falsy', async () => {
+    const login = await app.handle(
+      new Request('http://localhost/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Bob' }),
+      }),
+    )
+    const cookie = login.headers.getSetCookie()[0]
+    const res = await app.handle(new Request('http://localhost/admin/profile', { headers: { cookie } }))
+    expect(res.status).toBe(401)
+  })
+
+  it('allows when key is truthy', async () => {
+    const login = await app.handle(
+      new Request('http://localhost/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Alice' }),
+      }),
+    )
+    const cookie = login.headers.getSetCookie()[0]
+    const res = await app.handle(new Request('http://localhost/admin/profile', { headers: { cookie } }))
+    expect(res.status).toBe(200)
   })
 })

@@ -24,7 +24,11 @@ export function useSession<T extends Record<string, unknown> = Record<string, un
   )
 }
 
-export function requireSession(_event: H3Event, session: IronSession): void {
-  const hasData = Object.keys(session).some((k) => k !== 'save' && k !== 'destroy' && k !== 'updateConfig')
+export function requireSession(_event: H3Event, session: IronSession): void
+export function requireSession<K extends string>(_event: H3Event, session: IronSession, key: K): void
+export function requireSession(_event: H3Event, session: IronSession, key?: string): void {
+  const hasData = key
+    ? !!session[key]
+    : Object.keys(session).some((k) => k !== 'save' && k !== 'destroy' && k !== 'updateConfig')
   if (!hasData) throw createError({ statusCode: 401, statusMessage: 'unauthorized' })
 }
